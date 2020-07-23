@@ -1,0 +1,187 @@
+% -----------------------------------------------------
+%
+% -- MIMO Simulador para Redução Lattices
+% -----------------------------------------------------
+
+function simpleMIMOsimJuan(varargin)
+
+  % -- Inicialização por default/Parametros do Usuario
+  
+  if isempty(varargin)
+    clc
+    clear all
+    disp('Começa a Simulação...')
+        
+    % Envio de parametros de simulação por default
+    par.simName = 'ERR_2x2_4QAM'; % Nome Simulação (usada para salvar os resultados)
+    par.runId = 0; % simulação ID (usedo para reproduzir os resultados)
+    par.MR = 2; % Antenas Receptoras
+    par.MT = 2; % Antenas Transmisoras (Não devem ser maiores que MR!) 
+    par.mod = 'BPSK'; % Tipo Modulação: 'BPSK','QPSK','16QAM','64QAM'
+    par.trials = 10000; % Numero de ejecuções de Monte-Carlo trials (transmissiones)
+    par.SNRdB_list = 0:3:21; % lista da SNR [dB], valores a serem simulados
+    %par.detector = {'ZF','LLL_ZF','Fix_ZF','ELR_ZF','JUAN','Sampling'}; %define o detector(s) a ser simulado
+    %par.detector = {'Flipping'}; %define o detector(s) a ser simulado
+    par.detector = {'Flipping'};
+  else     
+    disp('Usos simulações de usuario e parâmetrosuse...')    
+    par = varargin{1}; % only argument is par structure
+    
+  end
+
+  % -- Inicialização
+  
+  % use runId random seed (enables reproducibility)
+  %rng(par.runId); 
+
+  % Uso do mapeamento de Gray no alfabeto da constelação
+  switch (par.mod)
+    case 'BPSK',
+      par.symbols = [ -1 1 ];
+    case 'QPSK', 
+      par.symbols = [ -1-1i,-1+1i, ...
+                      +1-1i,+1+1i ];
+    case '16QAM',
+      par.symbols = [ -3-3i,-3-1i,-3+3i,-3+1i, ...
+                      -1-3i,-1-1i,-1+3i,-1+1i, ...
+                      +3-3i,+3-1i,+3+3i,+3+1i, ...
+                      +1-3i,+1-1i,+1+3i,+1+1i ];                 
+    case '64QAM',
+      par.symbols = [ -7-7i,-7-5i,-7-1i,-7-3i,-7+7i,-7+5i,-7+1i,-7+3i, ...
+                      -5-7i,-5-5i,-5-1i,-5-3i,-5+7i,-5+5i,-5+1i,-5+3i, ...
+                      -1-7i,-1-5i,-1-1i,-1-3i,-1+7i,-1+5i,-1+1i,-1+3i, ...
+                      -3-7i,-3-5i,-3-1i,-3-3i,-3+7i,-3+5i,-3+1i,-3+3i, ...
+                      +7-7i,+7-5i,+7-1i,+7-3i,+7+7i,+7+5i,+7+1i,+7+3i, ...
+                      +5-7i,+5-5i,+5-1i,+5-3i,+5+7i,+5+5i,+5+1i,+5+3i, ...
+                      +1-7i,+1-5i,+1-1i,+1-3i,+1+7i,+1+5i,+1+1i,+1+3i, ...
+                      +3-7i,+3-5i,+3-1i,+3-3i,+3+7i,+3+5i,+3+1i,+3+3i ];
+                         
+  end
+  % extração da energis media de simbolo
+  par.Es = mean(abs(par.symbols).^2); 
+  par.M = length(par.symbols);
+  
+  % precomputo bit labels
+  par.Q = log2(length(par.symbols)); % numero de bits por simbolo
+  par.bits = de2bi(0:length(par.symbols)-1,par.Q,'left-msb');
+
+  % Tempo simulação
+  time_elapsed = 0;
+  
+  % -- Começa a Simulação
+  
+  % Inicialização dos array dos resultados (detector x SNR)
+  res.VER = zeros(length(par.detector),length(par.SNRdB_list)); % vector error rate
+  res.SER = zeros(length(par.detector),length(par.SNRdB_list)); % simbolo error rate
+  res.BER = zeros(length(par.detector),length(par.SNRdB_list)); % bit error rate
+  
+  % generação randomica de bit stream (antenna x bit x trial)
+  bits = randi([0 1],par.MT,par.Q,par.trials);
+  
+  % trials loop
+  tic
+  for t=1:par.trials
+
+     %SNR loop
+     for k=1:length(par.SNRdB_list)
+        
+        % generação simbolos transmitidos
+        idx = bi2de(bits(:,:,t),'left-msb')+1;    
+        s = par.symbols(idx).';
+        s_real = [real(s);imag(s)]; % converção de s do complexo ao real
+
+        % generação canal iid Gaussiano & vetor de ruido ou noise
+        n = sqrt(0.5)*(randn(par.MR,1)+1i*randn(par.MR,1));
+        n_real = [real(n);imag(n)]; % converção de n do complexo ao real.  
+        % computo varianza do noise (average SNR por antena receptora é: SNR=MT*Es/N0)
+        N0 = par.MT*par.Es*10^(-par.SNRdB_list(k)/10);
+        w = sqrt(N0)*n_real;
+        sigma = (var(w)/par.Es);    %sigma = var(w);
+        
+        
+        %Matriz Canal
+        H = sqrt(0.5)*(randn(par.MR,par.MT)+1i*randn(par.MR,par.MT));
+        H_real = [real(H),-imag(H);imag(H),real(H)];  % converção de H do complexo ao real.   
+      
+   
+      % algoritmo loop      
+      for d=1:length(par.detector)
+          
+        switch (par.detector{d}) % seleção algoritmo
+            
+           
+                
+               
+               
+               xhat =  xhat_quan(1:par.MT,:) + 1i*xhat_quan((par.MT+1):2*par.MT,:);
+               [a,idxhat] = min(abs(xhat*ones(1,length(par.symbols))-ones(par.MT,1)*par.symbols).^2,[],2);
+               bithat = par.bits(idxhat,:);
+               
+               
+               
+               
+ 
+               
+               
+
+               
+          otherwise,
+            error('tipo de par.detector não definido.')      
+        end %im switch
+
+        % -- computo métricas de error
+        err = (idx~=idxhat);
+        res.VER(d,k) = res.VER(d,k) + any(err);
+        res.SER(d,k) = res.SER(d,k) + sum(err)/par.MT;    
+        res.BER(d,k) = res.BER(d,k) + sum(sum(bits(:,:,t)~=bithat))/(par.MT*par.Q);      
+      end % algorithm loop
+           
+    end % SNR loop    
+    
+    % keep track tempo de simulação
+    if toc>10
+      time=toc;
+      time_elapsed = time_elapsed + time;
+      fprintf('Tempo Restante para Final da Simulação: %3.0f min.\n',time_elapsed*(par.trials/t-1)/60);
+      tic
+    end      
+  
+  end % trials loop
+  
+
+  % resultados normalizados
+  res.VER = res.VER/par.trials;
+  res.SER = res.SER/par.trials;
+  res.BER = res.BER/par.trials;
+  res.time_elapsed = time_elapsed;
+  
+  % -- Salvar os resultados finais (estructura par e res)  
+  %save([ par.simName '_' num2str(par.runId) ],'par','res');    
+    
+  % -- Mostrar os resultados (generação fairly nice Matlab plot) 
+  marker_style = {'bs--','rv','kp:','g*-','c>--','yx:'};
+  %marker_style = {'rd-'};
+  %figure(1)
+  for d=1:length(par.detector)
+    if d==1
+      semilogy(par.SNRdB_list,res.BER(d,:),marker_style{d},'LineWidth',2)      
+      hold on
+    else
+      semilogy(par.SNRdB_list,res.BER(d,:),marker_style{d},'LineWidth',2)
+    end
+  end
+  %hold off
+  grid on
+  xlabel('SNR [dB]','FontSize',12)
+  ylabel('bit error rate (BER)','FontSize',12)
+  %axis([min(par.SNRdB_list) max(par.SNRdB_list) 1e-4 1])
+  legend(par.detector,'FontSize',12)
+  set(gca,'FontSize',12)
+  
+end
+
+
+
+
+
+
